@@ -58,9 +58,11 @@ func Chat(think, stream bool) {
 		if stream {
 			scanner := bufio.NewScanner(resp.Body)
 
+			fmt.Println()
 			fmt.Print(ModelName, ": ")
 
 			thinking := false
+			msgConcat := []string{}
 
 			for scanner.Scan() {
 				txt := scanner.Text()
@@ -80,6 +82,8 @@ func Chat(think, stream bool) {
 						fmt.Print("\n\n")
 					}
 
+					msgConcat = append(msgConcat, modelResp.Message.Content)
+
 					fmt.Print(modelResp.Message.Content)
 				}
 
@@ -91,6 +95,11 @@ func Chat(think, stream bool) {
 			if err := scanner.Err(); err != nil {
 				panic(err)
 			}
+
+			chatHist = append(chatHist, prompt.ChatMessage{
+				Role:    prompt.Assistant, // always assistant because its message from the model
+				Content: strings.Join(msgConcat, ""),
+			})
 		} else {
 			modelResp, err := prompt.DecodeChatResponse(resp.Body)
 			if err != nil {
@@ -106,6 +115,7 @@ func Chat(think, stream bool) {
 		}
 
 		// Print the prompt for the next input
+		fmt.Println()
 		fmt.Print("> ")
 	}
 
