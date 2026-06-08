@@ -39,7 +39,7 @@ func Chat(think, stream bool) {
 			break
 		}
 
-		payload, err := prompt.CreateChatPrompt(ModelName, userInput, chatHist, false, false)
+		payload, err := prompt.CreateChatPrompt(ModelName, userInput, chatHist, think, stream)
 		if err != nil {
 			panic(err)
 		}
@@ -55,17 +55,55 @@ func Chat(think, stream bool) {
 		}
 		defer resp.Body.Close()
 
-		modelResp, err := prompt.DecodeChatResponse(resp.Body)
-		if err != nil {
-			panic(err)
+		if stream {
+			scanner := bufio.NewScanner(resp.Body)
+
+			fmt.Print(ModelName, ": ")
+
+			thinking := false
+
+			for scanner.Scan() {
+				txt := scanner.Text()
+
+				modelResp, err := prompt.DecodeChatStreamResponse(txt)
+				if err != nil {
+					panic(err)
+				}
+
+				if modelResp.Message.Thinking != "" {
+					thinking = true
+					fmt.Print(modelResp.Message.Thinking)
+				} else {
+					// catch the end of thinking response
+					if thinking {
+						thinking = false
+						fmt.Print("\n\n")
+					}
+
+					fmt.Print(modelResp.Message.Content)
+				}
+
+				if modelResp.Done {
+					fmt.Println()
+				}
+			}
+
+			if err := scanner.Err(); err != nil {
+				panic(err)
+			}
+		} else {
+			modelResp, err := prompt.DecodeChatResponse(resp.Body)
+			if err != nil {
+				panic(err)
+			}
+
+			chatHist = append(chatHist, prompt.ChatMessage{
+				Role:    modelResp.Message.Role,
+				Content: modelResp.Message.Content,
+			})
+
+			fmt.Println(ModelName, ":", modelResp.Message.Content)
 		}
-
-		chatHist = append(chatHist, prompt.ChatMessage{
-			Role:    modelResp.Message.Role,
-			Content: modelResp.Message.Content,
-		})
-
-		fmt.Println(ModelName, ":", modelResp.Message.Content)
 
 		// Print the prompt for the next input
 		fmt.Print("> ")

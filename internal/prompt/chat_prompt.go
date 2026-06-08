@@ -119,11 +119,22 @@ type ChatMessageResponse struct {
 	Thinking string   `json:"thinking"`
 }
 
+// DecodeChatResponse decodes a single message from the model in non-stream mode
 func DecodeChatResponse(r io.Reader) (*ChatResponse, error) {
 	var resp ChatResponse
 	decoder := json.NewDecoder(r)
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("failed to decode response JSON: %w", err)
+	}
+	return &resp, nil
+}
+
+// DecodeChatStreamResponse decodes a single message from the model in stream mode
+func DecodeChatStreamResponse(msg string) (*ChatResponse, error) {
+	var resp ChatResponse
+	decoder := json.NewDecoder(bytes.NewBufferString(msg))
+	if err := decoder.Decode(&resp); err != nil {
+		return nil, fmt.Errorf("failed to decode stream response JSON: %w", err)
 	}
 	return &resp, nil
 }
