@@ -1,4 +1,4 @@
-package prompt
+package payload
 
 import (
 	"bytes"
@@ -8,11 +8,12 @@ import (
 	"time"
 )
 
-// ChatPrompt is the JSON data that be sent to Ollama server
-type ChatPrompt struct {
+// ChatPayload is used for chat api
+type ChatPayload struct {
 	Model    string        `json:"model"`
 	Messages []ChatMessage `json:"messages"`
-	SharedPromptParams
+	Think    bool          `json:"think"`
+	Stream   bool          `json:"stream"`
 }
 
 // ChatMessage is an unit of message in a conversation with the model
@@ -25,21 +26,21 @@ type ChatMessage struct {
 type ChatRole int
 
 const (
-	System ChatRole = iota
-	User
-	Assistant
-	Tool
+	RoleSystem ChatRole = iota
+	RoleUser
+	RoleAssistant
+	RoleTool
 )
 
 func (r ChatRole) String() string {
 	switch r {
-	case System:
+	case RoleSystem:
 		return "system"
-	case User:
+	case RoleUser:
 		return "user"
-	case Assistant:
+	case RoleAssistant:
 		return "assistant"
-	case Tool:
+	case RoleTool:
 		return "tool"
 	default:
 		panic("unimplemented chat role")
@@ -60,38 +61,29 @@ func (r *ChatRole) UnmarshalJSON(b []byte) error {
 
 	switch s {
 	case "system":
-		*r = System
+		*r = RoleSystem
 	case "user":
-		*r = User
+		*r = RoleUser
 	case "assistant":
-		*r = Assistant
+		*r = RoleAssistant
 	case "tool":
-		*r = Tool
+		*r = RoleTool
 	default:
 		return fmt.Errorf("invalid chat role value: %s", s)
 	}
 	return nil
 }
 
-// CreateChatPrompt returns io.Reader object.
-func CreateChatPrompt(model, prompt string, chatHistory []ChatMessage, think, stream bool) (io.Reader, error) {
-	p := &ChatPrompt{
-		Model: model,
-		SharedPromptParams: SharedPromptParams{
-			Think:  think,
-			Stream: stream,
-		},
+// CreateChatPayload expects input messages are included with history messages
+func CreateChatPayload(model string, messages []ChatMessage, think, stream bool) (io.Reader, error) {
+	p := &ChatPayload{
+		Model:    model,
+		Think:    think,
+		Stream:   stream,
+		Messages: messages,
 	}
 
-	message := ChatMessage{
-		Role:    User,
-		Content: prompt,
-	}
-
-	p.Messages = chatHistory
-	p.Messages = append(p.Messages, message)
-
-	payload, err := json.MarshalIndent(p, "", "	")
+	payload, err := json.Marshal(p)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +91,7 @@ func CreateChatPrompt(model, prompt string, chatHistory []ChatMessage, think, st
 	return bytes.NewBuffer(payload), nil
 }
 
+// ChatResponse is the response from model server
 type ChatResponse struct {
 	Model              string              `json:"model"`
 	CreatedAt          time.Time           `json:"created_at"`
@@ -113,6 +106,7 @@ type ChatResponse struct {
 	EvalDuration       time.Duration       `json:"eval_duration"` // Parsed as nanoseconds
 }
 
+// ChatMessageResponse is the message content of each response
 type ChatMessageResponse struct {
 	Role     ChatRole `json:"role"` // always assistant
 	Content  string   `json:"content"`
@@ -120,9 +114,9 @@ type ChatMessageResponse struct {
 }
 
 // DecodeChatResponse decodes a single message from the model in non-stream mode
-func DecodeChatResponse(r io.Reader) (*ChatResponse, error) {
+func DecodeChatResponse(msg io.Reader) (*ChatResponse, error) {
 	var resp ChatResponse
-	decoder := json.NewDecoder(r)
+	decoder := json.NewDecoder(msg)
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("failed to decode response JSON: %w", err)
 	}
@@ -130,9 +124,9 @@ func DecodeChatResponse(r io.Reader) (*ChatResponse, error) {
 }
 
 // DecodeChatStreamResponse decodes a single message from the model in stream mode
-func DecodeChatStreamResponse(msg string) (*ChatResponse, error) {
+func DecodeChatStreamResponse(msg io.Reader) (*ChatResponse, error) {
 	var resp ChatResponse
-	decoder := json.NewDecoder(bytes.NewBufferString(msg))
+	decoder := json.NewDecoder(msg)
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("failed to decode stream response JSON: %w", err)
 	}

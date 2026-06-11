@@ -25,7 +25,7 @@ goas/
 ```
 
 ### What I am doing right now
-This project initially for me to learn how AI assistants work, how models work and try to implement
+This project initially is for me to learn how AI assistants work, how models work and try to implement
 for myself an assistant.
 
 So the plan is just code and make it work first, have simple features (chat, history, tool call,...)
