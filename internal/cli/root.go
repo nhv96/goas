@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nhv96/goas/internal/app"
+	"github.com/nhv96/goas/internal/agent"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -19,14 +19,16 @@ var RootCmd = &cobra.Command{
 	Short: "goas is a CLI tool to talk to AI models.",
 	Long:  `A sleek command-line interface built in Go, designed for speed and local automation.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		a, err := app.NewApplication(&app.Config{ModelName: "gemma4:e2b",
-			Think:  think,
-			Stream: stream})
-		if err != nil {
-			panic(err)
-		}
+		// a, err := app.NewApplication(&app.Config{ModelName: "gemma4:e2b",
+		// 	Think:  think,
+		// 	Stream: stream})
+		// if err != nil {
+		// 	panic(err)
+		// }
 
-		a.Start()
+		// a.Start()
+
+		agent.Chat(think, stream)
 	},
 }
 

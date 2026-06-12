@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nhv96/goas/internal/agent"
+	"github.com/nhv96/goas/internal/colors"
 )
 
 // Application controls the agent, printer,.. and the main chat loop
@@ -56,7 +57,7 @@ func (a *Application) Start() {
 		}
 
 		fmt.Println()
-		fmt.Print(a.Agent.ModelName, ": ")
+		fmt.Print(colors.Red(a.Agent.ModelName), ": ")
 
 		for {
 			if rep, ok := <-replyChan; ok {
