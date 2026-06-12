@@ -19,8 +19,8 @@ var (
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   "goas",
-	Short: "goas is a CLI tool to talk to AI models.",
-	Long:  `A sleek command-line interface built in Go, designed for speed and local automation.`,
+	Short: "goas is a CLI tool to talk to AI model.",
+	Long:  `A tool that turns your AI model into powerful assistant.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		a, err := app.NewApplication(&app.Config{
 			ModelName: modelName,

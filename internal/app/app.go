@@ -20,11 +20,17 @@ type Config struct {
 	ModelName string
 	Think     bool
 	Stream    bool
+
+	SystemPrompt string
 }
 
 // NewApplication creates new app
 func NewApplication(cfg *Config) (*Application, error) {
-	ag, err := agent.NewAgent(cfg.ModelName, "", cfg.Think, cfg.Stream)
+	sysPrompt := `You are a traveling agency that provide helpful suggestions and planning of travel trips.
+	You must always start your response with Dear Madam/Sir.
+	When in doubt, do not assume and you must ask questions to clarify what to do.`
+
+	ag, err := agent.NewAgent(cfg.ModelName, sysPrompt, cfg.Think, cfg.Stream)
 	if err != nil {
 		return nil, err
 	}
@@ -61,13 +67,20 @@ func (a *Application) Start() {
 
 		for {
 			if rep, ok := <-replyChan; ok {
-				fmt.Printf("%s", rep.Content)
+				displayOutput := ""
+				if rep.Thinking {
+					displayOutput = colors.Yellow(rep.Content)
+				} else {
+					displayOutput = colors.Bold(colors.Green)(rep.Content)
+				}
+				fmt.Printf("%s", displayOutput)
 			} else {
 				fmt.Println()
 				break
 			}
 		}
 
+		fmt.Println()
 		fmt.Print("> ")
 	}
 

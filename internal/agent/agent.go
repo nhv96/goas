@@ -61,27 +61,23 @@ func checkModelAvailability(modelName string) error {
 
 // Reply is a way to pass data between agent and application
 type Reply struct {
-	From    string
-	Content string
+	From     string
+	Content  string
+	Thinking bool
 }
 
 // Chat takes in a user input prompt, then inject the system prompt
 // before sending it to the model server.
 func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 	repChan := make(chan Reply, 5)
-	// var chatMessages []payload.ChatMessage
-	// if len(ag.ChatHistory) > 0 {
-	// 	chatMessages = ag.ChatHistory
-	// } else {
-	// 	if ag.SystemPrompt != "" {
-	// 		ag.ChatHistory = []payload.ChatMessage{
-	// 			{
-	// 				Role:    payload.RoleSystem,
-	// 				Content: ag.SystemPrompt,
-	// 			},
-	// 		}
-	// 	}
-	// }
+	if len(ag.ChatHistory) == 0 && ag.SystemPrompt != "" {
+		ag.ChatHistory = []payload.ChatMessage{
+			{
+				Role:    payload.RoleSystem,
+				Content: ag.SystemPrompt,
+			},
+		}
+	}
 
 	ag.ChatHistory = append(ag.ChatHistory, payload.ChatMessage{
 		Role:    payload.RoleUser,
@@ -129,8 +125,9 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 				thinking = true
 
 				repChan <- Reply{
-					From:    ag.ModelName,
-					Content: chatResp.Message.Thinking,
+					From:     ag.ModelName,
+					Content:  chatResp.Message.Thinking,
+					Thinking: thinking,
 				}
 			} else {
 				// catch the end of thinking response
@@ -143,8 +140,9 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 				msgConcat = append(msgConcat, chatResp.Message.Content)
 
 				repChan <- Reply{
-					From:    ag.ModelName,
-					Content: chatResp.Message.Content,
+					From:     ag.ModelName,
+					Content:  chatResp.Message.Content,
+					Thinking: thinking,
 				}
 			}
 
