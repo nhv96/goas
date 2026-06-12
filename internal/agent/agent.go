@@ -68,35 +68,35 @@ type Reply struct {
 // Chat takes in a user input prompt, then inject the system prompt
 // before sending it to the model server.
 func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
-	repChan := make(chan Reply)
-	var chatMessages []payload.ChatMessage
-	if len(ag.ChatHistory) > 0 {
-		chatMessages = ag.ChatHistory
-	} else {
-		if ag.SystemPrompt != "" {
-			ag.ChatHistory = []payload.ChatMessage{
-				{
-					Role:    payload.RoleSystem,
-					Content: ag.SystemPrompt,
-				},
-			}
-		}
-	}
+	repChan := make(chan Reply, 5)
+	// var chatMessages []payload.ChatMessage
+	// if len(ag.ChatHistory) > 0 {
+	// 	chatMessages = ag.ChatHistory
+	// } else {
+	// 	if ag.SystemPrompt != "" {
+	// 		ag.ChatHistory = []payload.ChatMessage{
+	// 			{
+	// 				Role:    payload.RoleSystem,
+	// 				Content: ag.SystemPrompt,
+	// 			},
+	// 		}
+	// 	}
+	// }
 
-	chatMessages = append(chatMessages, payload.ChatMessage{
+	ag.ChatHistory = append(ag.ChatHistory, payload.ChatMessage{
 		Role:    payload.RoleUser,
 		Content: userInput,
 	})
 
-	chatPayload, err := payload.CreateChatPayload(ag.ModelName, chatMessages, ag.Think, ag.Stream)
+	chatPayload, err := payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream)
 	if err != nil {
 		return nil, err
 	}
 
 	thinking := false
+	msgConcat := []string{}
 
 	doHandleResponse := func(msg io.Reader) error {
-		msgConcat := []string{}
 
 		if !ag.Stream {
 			chatResp, err := payload.DecodeChatResponse(msg)
@@ -104,19 +104,21 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 				return err
 			}
 
-			modelResponse := payload.ChatMessage{
-				Role:    payload.RoleAssistant,
-				Content: chatResp.Message.Content,
-			}
-
-			ag.ChatHistory = append(ag.ChatHistory, modelResponse)
+			msgConcat = append(msgConcat, chatResp.Message.Content)
 
 			repChan <- Reply{
 				From:    ag.ModelName,
-				Content: modelResponse.Content,
+				Content: chatResp.Message.Content,
 			}
 
 			close(repChan)
+
+			ag.ChatHistory = append(ag.ChatHistory,
+				payload.ChatMessage{
+					Role:    payload.RoleAssistant,
+					Content: strings.Join(msgConcat, ""),
+				},
+			)
 		} else {
 			chatResp, err := payload.DecodeChatStreamResponse(msg)
 			if err != nil {
@@ -148,12 +150,14 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 
 			if chatResp.Done {
 				close(repChan)
-			}
 
-			ag.ChatHistory = append(ag.ChatHistory, payload.ChatMessage{
-				Role:    payload.RoleAssistant,
-				Content: strings.Join(msgConcat, ""),
-			})
+				ag.ChatHistory = append(ag.ChatHistory,
+					payload.ChatMessage{
+						Role:    payload.RoleAssistant,
+						Content: strings.Join(msgConcat, ""),
+					},
+				)
+			}
 		}
 
 		return nil
