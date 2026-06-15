@@ -66,6 +66,18 @@ type Reply struct {
 	Thinking bool
 }
 
+func (r Reply) IsThinking() bool {
+	return r.Thinking
+}
+
+func (r Reply) GetContent() string {
+	return r.Content
+}
+
+func (ag *Agent) GetName() string {
+	return ag.ModelName
+}
+
 // Chat takes in a user input prompt, then inject the system prompt
 // before sending it to the model server.
 func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {

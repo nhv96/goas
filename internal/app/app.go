@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -11,8 +12,11 @@ import (
 )
 
 // Application controls the agent, printer,.. and the main chat loop
-type Application struct {
-	Agent *agent.Agent
+type Application[T AgentReply] struct {
+	Agent Agentor[T]
+
+	input  io.Reader
+	output io.Writer
 }
 
 // Config contains config for app
@@ -24,36 +28,49 @@ type Config struct {
 	SystemPrompt string
 }
 
+// Agentor is the interface for agent implementation
+type Agentor[T AgentReply] interface {
+	GetName() string
+	Chat(userInput string) (<-chan T, error)
+}
+
+type AgentReply interface {
+	IsThinking() bool
+	GetContent() string
+}
+
 // NewApplication creates new app
-func NewApplication(cfg *Config) (*Application, error) {
-	sysPrompt := `You are a traveling agency that provide helpful suggestions and planning of travel trips.
+func NewApplication(cfg *Config) (*Application[agent.Reply], error) {
+	cfg.SystemPrompt = `You are a traveling agency that provide helpful suggestions and planning of travel trips.
 	You must always start your response with Dear Madam/Sir.
 	When in doubt, do not assume and you must ask questions to clarify what to do.`
 
-	ag, err := agent.NewAgent(cfg.ModelName, sysPrompt, cfg.Think, cfg.Stream)
+	ag, err := agent.NewAgent(cfg.ModelName, cfg.SystemPrompt, cfg.Think, cfg.Stream)
 	if err != nil {
 		return nil, err
 	}
 
-	app := &Application{
-		Agent: ag,
+	app := &Application[agent.Reply]{
+		Agent:  ag,
+		input:  os.Stdin,
+		output: os.Stdout,
 	}
 
 	return app, nil
 }
 
 // Start starts the input scanner and chat loop
-func (a *Application) Start() {
-	scanner := bufio.NewScanner(os.Stdin)
+func (a *Application[T]) Start() {
+	scanner := bufio.NewScanner(a.input)
 
-	fmt.Printf("You are chatting with: %s. Type 'exit' to quit.\n", a.Agent.ModelName)
-	fmt.Print("> ")
+	fmt.Fprintf(a.output, "You are chatting with: %s. Type 'exit' to quit.\n", a.Agent.GetName())
+	fmt.Fprint(a.output, "> ")
 
 	for scanner.Scan() {
 		userInput := scanner.Text()
 
 		if strings.TrimSpace(strings.ToLower(userInput)) == "exit" {
-			fmt.Println("Goodbye!")
+			fmt.Fprintln(a.output, "Goodbye!")
 			break
 		}
 
@@ -62,29 +79,30 @@ func (a *Application) Start() {
 			panic(err)
 		}
 
-		fmt.Println()
-		fmt.Print(colors.Red(a.Agent.ModelName), ": ")
+		fmt.Fprintln(a.output)
+		fmt.Fprint(a.output, colors.Red(a.Agent.GetName()), ": ")
 
 		for {
 			if rep, ok := <-replyChan; ok {
 				displayOutput := ""
-				if rep.Thinking {
-					displayOutput = colors.Yellow(rep.Content)
+				if rep.IsThinking() {
+					displayOutput = colors.Yellow(rep.GetContent())
 				} else {
-					displayOutput = colors.Bold(colors.Green)(rep.Content)
+					displayOutput = colors.Bold(colors.Green)(rep.GetContent())
 				}
-				fmt.Printf("%s", displayOutput)
+
+				fmt.Fprintf(a.output, "%s", displayOutput)
 			} else {
-				fmt.Println()
+				fmt.Fprintln(a.output)
 				break
 			}
 		}
 
-		fmt.Println()
-		fmt.Print("> ")
+		fmt.Fprintln(a.output)
+		fmt.Fprint(a.output, "> ")
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "error reading standard input:", err)
+		fmt.Fprintln(a.output, "error reading standard input:", err)
 	}
 }

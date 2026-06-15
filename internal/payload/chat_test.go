@@ -15,7 +15,7 @@ func TestCreateChatPayload(t *testing.T) {
 	model := "model_a"
 	promptMsg := "msg"
 	chatMessages := []ChatMessage{
-		ChatMessage{
+		{
 			Role:    RoleUser,
 			Content: promptMsg,
 		},
