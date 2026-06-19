@@ -25,7 +25,11 @@ type Agent struct {
 	Think  bool
 	Stream bool
 
-	client client.ModelClient // ollama client server
+	client AIModelClient // ollama client server
+}
+
+type AIModelClient interface {
+	SendChat(payload io.Reader, stream bool, h client.ResponseHandler) error
 }
 
 // TODO: to be replaced with ollama call to list available models
@@ -38,14 +42,17 @@ func NewAgent(modelName, systemPrompt string, think, stream bool) (*Agent, error
 		return nil, err
 	}
 
-	client := client.NewModelClient("http://localhost", "11434", "api")
+	client, err := client.NewModelClient("http://localhost:11434/api")
+	if err != nil {
+		return nil, err
+	}
 
 	agent := &Agent{
 		ModelName:    modelName,
 		SystemPrompt: systemPrompt,
 		Think:        think,
 		Stream:       stream,
-		client:       *client,
+		client:       client,
 	}
 
 	return agent, nil
@@ -57,21 +64,6 @@ func checkModelAvailability(modelName string) error {
 	}
 
 	return nil
-}
-
-// Reply is a way to pass data between agent and application
-type Reply struct {
-	From     string
-	Content  string
-	Thinking bool
-}
-
-func (r Reply) IsThinking() bool {
-	return r.Thinking
-}
-
-func (r Reply) GetContent() string {
-	return r.Content
 }
 
 func (ag *Agent) GetName() string {
