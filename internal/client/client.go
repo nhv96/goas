@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 var (
@@ -15,24 +15,25 @@ var (
 )
 
 type ModelClient struct {
-	host    string
-	port    string
-	baseURL string
+	clientURL *url.URL
 
-	client http.Client
+	client *http.Client
 }
 
-func NewModelClient(host, port, url string) *ModelClient {
-	client := http.Client{}
+func NewModelClient(baseAPI string) (*ModelClient, error) {
+	client := &http.Client{}
 
-	mc := &ModelClient{
-		host:    host,
-		port:    port,
-		baseURL: url,
-		client:  client,
+	u, err := url.Parse(baseAPI)
+	if err != nil {
+		return nil, err
 	}
 
-	return mc
+	mc := &ModelClient{
+		clientURL: u,
+		client:    client,
+	}
+
+	return mc, nil
 }
 
 // ResponseHandler is the function to handle messages from server response
@@ -41,9 +42,9 @@ type ResponseHandler func(message io.Reader) error
 // SendChat sends the payload to model server and return whatever response from the server.
 // If run with stream mode, the function expects a handler to handle the streaming messages.
 func (mc *ModelClient) SendChat(payload io.Reader, stream bool, handler ResponseHandler) error {
-	// url := mc.baseURL + "/chat" // TODO: use url package something
-	url := fmt.Sprintf("%s:%s/%s/%s", mc.host, mc.port, mc.baseURL, "chat")
-	req, err := http.NewRequest(http.MethodPost, url, payload)
+	endpointURL := mc.clientURL.JoinPath("chat")
+
+	req, err := http.NewRequest(http.MethodPost, endpointURL.String(), payload)
 	if err != nil {
 		return err
 	}
@@ -72,6 +73,8 @@ func (mc *ModelClient) SendChat(payload io.Reader, stream bool, handler Response
 		if err := scanner.Err(); err != nil {
 			return err
 		}
+
+		return nil
 	}
 
 	return handler(resp.Body)
