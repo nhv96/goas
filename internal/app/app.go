@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/nhv96/goas/internal/agent"
@@ -17,6 +18,8 @@ type Application[T AgentReply] struct {
 
 	input  io.Reader
 	output io.Writer
+
+	introduced bool
 }
 
 // Config contains config for app
@@ -41,9 +44,9 @@ type AgentReply interface {
 
 // NewApplication creates new app
 func NewApplication(cfg *Config) (*Application[agent.Reply], error) {
-	cfg.SystemPrompt = `You are a traveling agency that provide helpful suggestions and planning of travel trips.
-	You must always start your response with Dear Madam/Sir.
-	When in doubt, do not assume and you must ask questions to clarify what to do.`
+	cfg.SystemPrompt = `You are an AI agent that control a crane system.
+	You will receive order from the user to move the crane and you must execute that request.
+	You must look at the tool output and inform the result of your tool calling.`
 
 	ag, err := agent.NewAgent(cfg.ModelName, cfg.SystemPrompt, cfg.Think, cfg.Stream)
 	if err != nil {
@@ -64,45 +67,75 @@ func (a *Application[T]) Start() {
 	scanner := bufio.NewScanner(a.input)
 
 	fmt.Fprintf(a.output, "You are chatting with: %s. Type 'exit' to quit.\n", a.Agent.GetName())
-	fmt.Fprint(a.output, "> ")
+	// fmt.Fprint(a.output, "> ")
+
+	if a.shouldIntroduce() {
+		userInput := "introduce yourself"
+
+		a.chatAndDisplay(userInput)
+	}
 
 	for scanner.Scan() {
 		userInput := scanner.Text()
 
-		if strings.TrimSpace(strings.ToLower(userInput)) == "exit" {
+		if a.shouldEnd(strings.TrimSpace(strings.ToLower(userInput))) {
 			fmt.Fprintln(a.output, "Goodbye!")
 			break
 		}
 
-		replyChan, err := a.Agent.Chat(userInput)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Fprintln(a.output)
-		fmt.Fprint(a.output, colors.Red(a.Agent.GetName()), ": ")
-
-		for {
-			if rep, ok := <-replyChan; ok {
-				displayOutput := ""
-				if rep.IsThinking() {
-					displayOutput = colors.Yellow(rep.GetContent())
-				} else {
-					displayOutput = colors.Bold(colors.Green)(rep.GetContent())
-				}
-
-				fmt.Fprintf(a.output, "%s", displayOutput)
-			} else {
-				fmt.Fprintln(a.output)
-				break
-			}
-		}
-
-		fmt.Fprintln(a.output)
-		fmt.Fprint(a.output, "> ")
+		a.chatAndDisplay(userInput)
 	}
 
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(a.output, "error reading standard input:", err)
 	}
+}
+
+func (a *Application[T]) shouldEnd(in string) bool {
+	return slices.Contains([]string{"exit", "bye"}, in)
+}
+
+func (a *Application[T]) shouldIntroduce() bool {
+	return !a.introduced
+}
+
+func (a *Application[T]) chatAndDisplay(userInput string) {
+	// flag to catch when the thinking has started/stopped
+	thinking := false
+
+	replyChan, err := a.Agent.Chat(userInput)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Fprintln(a.output)
+	fmt.Fprint(a.output, colors.Red(a.Agent.GetName()), ": ")
+
+	for {
+		if rep, ok := <-replyChan; ok {
+			displayOutput := ""
+			if rep.IsThinking() {
+				if !thinking {
+					thinking = true // thinking started
+				}
+
+				displayOutput = colors.Yellow(rep.GetContent())
+			} else {
+				displayOutput = colors.Bold(colors.Green)(rep.GetContent())
+
+				if thinking {
+					thinking = false // thinking stopped
+					displayOutput = "\n\n" + displayOutput
+				}
+			}
+
+			fmt.Fprintf(a.output, "%s", displayOutput)
+		} else {
+			fmt.Fprintln(a.output)
+			break
+		}
+	}
+
+	fmt.Fprintln(a.output)
+	fmt.Fprint(a.output, "> ")
 }

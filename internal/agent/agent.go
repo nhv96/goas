@@ -2,12 +2,16 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
 
 	"github.com/nhv96/goas/internal/client"
 	"github.com/nhv96/goas/internal/payload"
+	"github.com/nhv96/goas/pkg/tools"
+	movecrane "github.com/nhv96/goas/pkg/tools/move_crane"
+	"github.com/nhv96/goas/pkg/tools/wait"
 )
 
 var (
@@ -21,6 +25,8 @@ type Agent struct {
 	SystemPrompt string
 
 	ChatHistory []payload.ChatMessage
+
+	Tools ToolBag
 
 	Think  bool
 	Stream bool
@@ -53,6 +59,11 @@ func NewAgent(modelName, systemPrompt string, think, stream bool) (*Agent, error
 		Think:        think,
 		Stream:       stream,
 		client:       client,
+	}
+
+	agent.Tools = map[string]tools.Tooler{
+		"move_crane": movecrane.Init(),
+		"wait":       wait.Init(),
 	}
 
 	return agent, nil
@@ -88,16 +99,25 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 		Content: userInput,
 	})
 
-	chatPayload, err := payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream)
+	chatPayload, err := payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, ag.Tools.Descriptions())
 	if err != nil {
 		return nil, err
 	}
 
-	thinking := false
 	msgConcat := []string{}
 
-	doHandleResponse := func(msg io.Reader) error {
+	// a flag to know when should we conclude that the streaming chat
+	// is actually finished (after tool calling we need to wait for conclude msg from model).
+	waitToolCall := false
 
+	// channel to communicate with the child goroutine that send chat message.
+	// if should it send another message (for after tool calling), use this channel
+	// to inform the goroutine to send another message.
+	// otherwise close it.
+	pushMsgChan := make(chan io.Reader, 1)
+	pushMsgChan <- chatPayload
+
+	doHandleResponse := func(msg io.Reader) error {
 		if !ag.Stream {
 			chatResp, err := payload.DecodeChatResponse(msg)
 			if err != nil {
@@ -106,19 +126,38 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 
 			msgConcat = append(msgConcat, chatResp.Message.Content)
 
-			repChan <- Reply{
-				From:    ag.ModelName,
-				Content: chatResp.Message.Content,
+			// tool call handling
+			if len(chatResp.Message.ToolCalls) > 0 {
+				ag.handleToolCall(chatResp)
+
+				chatPayload, err = payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, ag.Tools.Descriptions())
+				if err != nil {
+					return err
+				}
+
+				// signal to send another final request to sync
+				// the tool calling result to the model
+				pushMsgChan <- chatPayload
+				close(pushMsgChan)
+			} else {
+				if chatResp.Message.Content != "" || chatResp.Message.Thinking != "" {
+					ag.ChatHistory = append(ag.ChatHistory,
+						payload.ChatMessage{
+							Role:    payload.RoleAssistant,
+							Content: strings.Join(msgConcat, ""),
+						},
+					)
+
+					repChan <- Reply{
+						From:    ag.ModelName,
+						Content: chatResp.Message.Content,
+					}
+				}
+
+				// TODO: careful
+				close(repChan)
 			}
 
-			close(repChan)
-
-			ag.ChatHistory = append(ag.ChatHistory,
-				payload.ChatMessage{
-					Role:    payload.RoleAssistant,
-					Content: strings.Join(msgConcat, ""),
-				},
-			)
 		} else {
 			chatResp, err := payload.DecodeChatStreamResponse(msg)
 			if err != nil {
@@ -126,39 +165,56 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 			}
 
 			if chatResp.Message.Thinking != "" {
-				thinking = true
-
 				repChan <- Reply{
 					From:     ag.ModelName,
 					Content:  chatResp.Message.Thinking,
-					Thinking: thinking,
+					Thinking: true,
 				}
 			} else {
-				// catch the end of thinking response
-				if thinking {
-					thinking = false
-					// inject 2 new lines
-					chatResp.Message.Content = "\n\n" + chatResp.Message.Content
-				}
+				if chatResp.Message.Content != "" {
+					msgConcat = append(msgConcat, chatResp.Message.Content)
 
-				msgConcat = append(msgConcat, chatResp.Message.Content)
+					repChan <- Reply{
+						From:     ag.ModelName,
+						Content:  chatResp.Message.Content,
+						Thinking: false,
+					}
+				} else if len(chatResp.Message.ToolCalls) > 0 {
+					ag.handleToolCall(chatResp)
 
-				repChan <- Reply{
-					From:     ag.ModelName,
-					Content:  chatResp.Message.Content,
-					Thinking: thinking,
+					chatPayload, err = payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, ag.Tools.Descriptions())
+					if err != nil {
+						return err
+					}
+
+					// signal to send another chat request to sync
+					// the tool calling result to the model
+					pushMsgChan <- chatPayload
+
+					waitToolCall = true
 				}
 			}
 
 			if chatResp.Done {
-				close(repChan)
+				// when all tools has been done
+				if !waitToolCall {
+					close(repChan)
+					close(pushMsgChan)
+				}
 
-				ag.ChatHistory = append(ag.ChatHistory,
-					payload.ChatMessage{
-						Role:    payload.RoleAssistant,
-						Content: strings.Join(msgConcat, ""),
-					},
-				)
+				if len(msgConcat) > 0 {
+					ag.ChatHistory = append(ag.ChatHistory,
+						payload.ChatMessage{
+							Role:    payload.RoleAssistant,
+							Content: strings.Join(msgConcat, ""),
+						},
+					)
+				}
+
+				// when a message is done, we might turn off waitToolCall.
+				// but the next message in the stream could be another tool call,
+				// and turn on the flag again.
+				waitToolCall = false
 			}
 		}
 
@@ -166,11 +222,50 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 	}
 
 	go func() {
-		err = ag.client.SendChat(chatPayload, ag.Stream, doHandleResponse)
-		if err != nil {
-			return
+		for {
+			if pl, ok := <-pushMsgChan; ok {
+				// fmt.Println("\nsending chat...")
+				err = ag.client.SendChat(pl, ag.Stream, doHandleResponse)
+				if err != nil {
+					return
+				}
+			} else {
+				break
+			}
 		}
 	}()
 
 	return repChan, err
+}
+
+func (ag *Agent) handleToolCall(chatResp *payload.ChatResponse) {
+	// cheat, ollama responds empty field type
+	for _, tc := range chatResp.Message.ToolCalls {
+		tc.Type = "function"
+	}
+
+	ag.ChatHistory = append(ag.ChatHistory, payload.ChatMessage{
+		Role:      payload.RoleAssistant,
+		ToolCalls: chatResp.Message.ToolCalls,
+	})
+
+	for _, toolCall := range chatResp.Message.ToolCalls {
+		if tool, ok := ag.Tools[toolCall.Function.Name]; ok {
+			fmt.Println("calling tool:", toolCall.Function.Name)
+
+			callResult, err := tool.Run(toolCall.Function.Arguments)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+
+			ag.ChatHistory = append(ag.ChatHistory,
+				payload.ChatMessage{
+					Role:     payload.RoleTool,
+					ToolName: toolCall.Function.Name,
+					Content:  callResult.(string),
+				},
+			)
+		}
+	}
 }

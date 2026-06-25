@@ -14,12 +14,15 @@ type ChatPayload struct {
 	Messages []ChatMessage `json:"messages"`
 	Think    bool          `json:"think"`
 	Stream   bool          `json:"stream"`
+	Tools    []Tool        `json:"tools"`
 }
 
 // ChatMessage is an unit of message in a conversation with the model
 type ChatMessage struct {
-	Role    ChatRole `json:"role"`
-	Content string   `json:"content"`
+	Role      ChatRole    `json:"role"`
+	Content   string      `json:"content,omitempty"`
+	ToolName  string      `json:"tool_name,omitempty"`
+	ToolCalls []*ToolCall `json:"tool_calls,omitempty"`
 }
 
 // ChatRole defines the roles of the sender of prompt
@@ -75,7 +78,7 @@ func (r *ChatRole) UnmarshalJSON(b []byte) error {
 }
 
 // CreateChatPayload expects input messages are included with history messages
-func CreateChatPayload(model string, messages []ChatMessage, think, stream bool) (io.Reader, error) {
+func CreateChatPayload(model string, messages []ChatMessage, think, stream bool, tools []string) (io.Reader, error) {
 	p := &ChatPayload{
 		Model:    model,
 		Think:    think,
@@ -83,10 +86,26 @@ func CreateChatPayload(model string, messages []ChatMessage, think, stream bool)
 		Messages: messages,
 	}
 
+	// TODO: improve this
+	if len(tools) > 0 {
+		for _, desc := range tools {
+			t := Tool{}
+
+			err := json.Unmarshal([]byte(desc), &t)
+			if err != nil {
+				return nil, err
+			}
+
+			p.Tools = append(p.Tools, t)
+		}
+	}
+
 	payload, err := json.Marshal(p)
 	if err != nil {
 		return nil, err
 	}
+
+	// fmt.Println("payload", string(payload))
 
 	return bytes.NewBuffer(payload), nil
 }
@@ -108,9 +127,10 @@ type ChatResponse struct {
 
 // ChatMessageResponse is the message content of each response
 type ChatMessageResponse struct {
-	Role     ChatRole `json:"role"` // always assistant
-	Content  string   `json:"content"`
-	Thinking string   `json:"thinking"`
+	Role      ChatRole    `json:"role"` // always assistant
+	Content   string      `json:"content"`
+	Thinking  string      `json:"thinking"`
+	ToolCalls []*ToolCall `json:"tool_calls"`
 }
 
 // DecodeChatResponse decodes a single message from the model in non-stream mode
@@ -120,6 +140,8 @@ func DecodeChatResponse(msg io.Reader) (*ChatResponse, error) {
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("failed to decode response JSON: %w", err)
 	}
+	// bb, _ := json.Marshal(resp)
+	// fmt.Println("chat response", string(bb))
 	return &resp, nil
 }
 
@@ -130,5 +152,7 @@ func DecodeChatStreamResponse(msg io.Reader) (*ChatResponse, error) {
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("failed to decode stream response JSON: %w", err)
 	}
+	// bb, _ := json.Marshal(resp)
+	// fmt.Println("\nchat stream response", string(bb))
 	return &resp, nil
 }

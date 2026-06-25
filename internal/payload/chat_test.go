@@ -21,7 +21,7 @@ func TestCreateChatPayload(t *testing.T) {
 		},
 	}
 
-	rdr, err := CreateChatPayload(model, chatMessages, true, false)
+	rdr, err := CreateChatPayload(model, chatMessages, true, false, []string{})
 	assert.Nil(t, err)
 
 	actualBytes, err := io.ReadAll(rdr)
