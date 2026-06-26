@@ -13,8 +13,8 @@ import (
 )
 
 // Application controls the agent, printer,.. and the main chat loop
-type Application[T AgentReply] struct {
-	Agent Agentor[T]
+type Application[T agent.AgentReply] struct {
+	Agent agent.Agentor[T]
 
 	input  io.Reader
 	output io.Writer
@@ -31,29 +31,23 @@ type Config struct {
 	SystemPrompt string
 }
 
-// Agentor is the interface for agent implementation
-type Agentor[T AgentReply] interface {
-	GetName() string
-	Chat(userInput string) (<-chan T, error)
-}
-
-type AgentReply interface {
-	IsThinking() bool
-	GetContent() string
-}
-
 // NewApplication creates new app
-func NewApplication(cfg *Config) (*Application[agent.Reply], error) {
-	cfg.SystemPrompt = `You are an AI agent that control a crane system.
-	You will receive order from the user to move the crane and you must execute that request.
-	You must look at the tool output and inform the result of your tool calling.`
+func NewApplication(cfg *Config) (*Application[agent.Envelop], error) {
+	// cfg.SystemPrompt = `You are an AI agent that control a crane system.
+	// You will receive order from the user to move the crane and you must execute that request.
+	// You must look at the tool output and inform the result of your tool calling.`
+
+	cfg.SystemPrompt = `You **must** act as an expert in software engineering.
+	You provide the complete, clean code implementation, followed by a brief explanation of how it works.
+	Ensure the code is properly typed and commented.
+	You also provide code review with best practices and identify improvements, risks or bugs.`
 
 	ag, err := agent.NewAgent(cfg.ModelName, cfg.SystemPrompt, cfg.Think, cfg.Stream)
 	if err != nil {
 		return nil, err
 	}
 
-	app := &Application[agent.Reply]{
+	app := &Application[agent.Envelop]{
 		Agent:  ag,
 		input:  os.Stdin,
 		output: os.Stdout,

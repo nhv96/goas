@@ -1,4 +1,4 @@
-package client
+package ollama
 
 import (
 	"bufio"
@@ -13,6 +13,10 @@ var (
 	ErrServerCallFailed          = errors.New("failed calling model server")
 	ErrStreamHandlerTypeNotMatch = errors.New("handler function not match type")
 )
+
+type BackendServer interface {
+	SendChat(payload io.Reader, stream bool, h ResponseHandler) error
+}
 
 type ModelClient struct {
 	clientURL *url.URL

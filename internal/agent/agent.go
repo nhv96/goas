@@ -7,16 +7,29 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nhv96/goas/internal/client"
+	"github.com/nhv96/goas/internal/ollama"
 	"github.com/nhv96/goas/internal/payload"
 	"github.com/nhv96/goas/pkg/tools"
-	movecrane "github.com/nhv96/goas/pkg/tools/move_crane"
-	"github.com/nhv96/goas/pkg/tools/wait"
+	"github.com/nhv96/goas/pkg/tools/grep"
+	readfile "github.com/nhv96/goas/pkg/tools/read_file"
+	writefile "github.com/nhv96/goas/pkg/tools/write_file"
 )
 
 var (
 	ErrModelNotSupported = errors.New("model not supported")
 )
+
+// Agentor is the interface for agent implementation
+type Agentor[T AgentReply] interface {
+	GetName() string
+	Chat(userInput string) (<-chan T, error)
+}
+
+// AgentReply is the struct return to application callers
+type AgentReply interface {
+	IsThinking() bool
+	GetContent() string
+}
 
 // Agent struct holds the configuration and the history of its conversation messages.
 type Agent struct {
@@ -31,11 +44,7 @@ type Agent struct {
 	Think  bool
 	Stream bool
 
-	client AIModelClient // ollama client server
-}
-
-type AIModelClient interface {
-	SendChat(payload io.Reader, stream bool, h client.ResponseHandler) error
+	ollama ollama.BackendServer // ollama client server
 }
 
 // TODO: to be replaced with ollama call to list available models
@@ -48,7 +57,7 @@ func NewAgent(modelName, systemPrompt string, think, stream bool) (*Agent, error
 		return nil, err
 	}
 
-	client, err := client.NewModelClient("http://localhost:11434/api")
+	client, err := ollama.NewModelClient("http://localhost:11434/api")
 	if err != nil {
 		return nil, err
 	}
@@ -58,12 +67,24 @@ func NewAgent(modelName, systemPrompt string, think, stream bool) (*Agent, error
 		SystemPrompt: systemPrompt,
 		Think:        think,
 		Stream:       stream,
-		client:       client,
+		ollama:       client,
 	}
 
 	agent.Tools = map[string]tools.Tooler{
-		"move_crane": movecrane.Init(),
-		"wait":       wait.Init(),
+		// "move_crane": movecrane.Init(),
+		// "wait": wait.Init(),
+		"write_file": writefile.Init(),
+		"read_file":  readfile.Init(),
+		"grep":       grep.Init(),
+	}
+
+	if agent.SystemPrompt != "" {
+		agent.ChatHistory = []payload.ChatMessage{
+			{
+				Role:    payload.RoleSystem,
+				Content: agent.SystemPrompt,
+			},
+		}
 	}
 
 	return agent, nil
@@ -83,16 +104,8 @@ func (ag *Agent) GetName() string {
 
 // Chat takes in a user input prompt, then inject the system prompt
 // before sending it to the model server.
-func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
-	repChan := make(chan Reply, 5)
-	if len(ag.ChatHistory) == 0 && ag.SystemPrompt != "" {
-		ag.ChatHistory = []payload.ChatMessage{
-			{
-				Role:    payload.RoleSystem,
-				Content: ag.SystemPrompt,
-			},
-		}
-	}
+func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
+	envelopChan := make(chan Envelop, 5)
 
 	ag.ChatHistory = append(ag.ChatHistory, payload.ChatMessage{
 		Role:    payload.RoleUser,
@@ -138,7 +151,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 				// signal to send another final request to sync
 				// the tool calling result to the model
 				pushMsgChan <- chatPayload
-				close(pushMsgChan)
+				close(pushMsgChan) // TODO: check bug here
 			} else {
 				if chatResp.Message.Content != "" || chatResp.Message.Thinking != "" {
 					ag.ChatHistory = append(ag.ChatHistory,
@@ -148,14 +161,14 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 						},
 					)
 
-					repChan <- Reply{
+					envelopChan <- Envelop{
 						From:    ag.ModelName,
 						Content: chatResp.Message.Content,
 					}
 				}
 
 				// TODO: careful
-				close(repChan)
+				close(envelopChan)
 			}
 
 		} else {
@@ -165,7 +178,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 			}
 
 			if chatResp.Message.Thinking != "" {
-				repChan <- Reply{
+				envelopChan <- Envelop{
 					From:     ag.ModelName,
 					Content:  chatResp.Message.Thinking,
 					Thinking: true,
@@ -174,7 +187,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 				if chatResp.Message.Content != "" {
 					msgConcat = append(msgConcat, chatResp.Message.Content)
 
-					repChan <- Reply{
+					envelopChan <- Envelop{
 						From:     ag.ModelName,
 						Content:  chatResp.Message.Content,
 						Thinking: false,
@@ -198,7 +211,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 			if chatResp.Done {
 				// when all tools has been done
 				if !waitToolCall {
-					close(repChan)
+					close(envelopChan)
 					close(pushMsgChan)
 				}
 
@@ -225,7 +238,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 		for {
 			if pl, ok := <-pushMsgChan; ok {
 				// fmt.Println("\nsending chat...")
-				err = ag.client.SendChat(pl, ag.Stream, doHandleResponse)
+				err = ag.ollama.SendChat(pl, ag.Stream, doHandleResponse)
 				if err != nil {
 					return
 				}
@@ -235,7 +248,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Reply, error) {
 		}
 	}()
 
-	return repChan, err
+	return envelopChan, err
 }
 
 func (ag *Agent) handleToolCall(chatResp *payload.ChatResponse) {
