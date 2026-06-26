@@ -19,7 +19,7 @@ func Init() tools.Tooler {
 			Type: "function",
 			Function: tools.Function{
 				Name:        "move_crane",
-				Description: "Send order to move the crane to x and y position",
+				Description: "A tool to send order to move the crane to x and y position",
 				Parameters: tools.Parameters{
 					Type:     "object",
 					Required: []string{"x", "y"},

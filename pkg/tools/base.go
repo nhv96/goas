@@ -6,6 +6,7 @@ import (
 )
 
 type Tooler interface {
+	Name() string
 	String() string
 	Run(any) (any, error)
 }
@@ -25,6 +26,10 @@ type Parameters struct {
 	Type       string                    `json:"type"`
 	Required   []string                  `json:"required"`
 	Properties map[string]map[string]any `json:"properties"`
+}
+
+func (b Base) Name() string {
+	return b.Function.Name
 }
 
 func (b Base) String() string {

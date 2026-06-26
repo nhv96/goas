@@ -19,14 +19,14 @@ func Init() tools.Tooler {
 			Type: "function",
 			Function: tools.Function{
 				Name:        "wait",
-				Description: "Wait for a duration then continue the program.",
+				Description: "A tool used to pause the program for a duration.",
 				Parameters: tools.Parameters{
 					Type:     "object",
 					Required: []string{"t"},
 					Properties: map[string]map[string]any{
 						"t": {
 							"type":        "integer",
-							"description": "the time in milliseconds to wait",
+							"description": "The time in milliseconds to wait for.",
 						},
 					},
 				},
