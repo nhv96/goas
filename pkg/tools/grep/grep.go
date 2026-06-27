@@ -17,16 +17,16 @@ func Init() tools.Tooler {
 			Type: "function",
 			Function: tools.Function{
 				Name:        "grep",
-				Description: "A tool used to search a string accross files in a directory.",
+				Description: "A tool to search a pattern accross files in a directory.",
 				Parameters: tools.Parameters{
 					Type:     "object",
-					Required: []string{"str", "dir"},
+					Required: []string{"pattern", "directory"},
 					Properties: map[string]map[string]any{
-						"str": {
+						"pattern": {
 							"type":        "string",
 							"description": "The text string or keyword to search for.",
 						},
-						"dir": {
+						"directory": {
 							"type":        "string",
 							"description": "The path to directory, must be **absolute** path.",
 						},
@@ -45,8 +45,8 @@ func (t Grep) Run(args any) (any, error) {
 		return nil, fmt.Errorf("wrong input")
 	}
 
-	str := in["str"].(string)
-	dir := in["dir"].(string)
+	str := in["pattern"].(string)
+	dir := in["directory"].(string)
 
 	cmd := exec.Command("grep", "-rin", str, dir)
 

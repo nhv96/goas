@@ -1,5 +1,5 @@
 # GOAS
-The AI Agen that actually *works* with Ollama local setup.
+The AI Agent that actually *works* with Ollama local setup.
 
 ### Project structure recommended by Gemini (for myself to read)
 ```
@@ -30,3 +30,12 @@ for myself an assistant.
 
 So the plan is just code and make it work first, have simple features (chat, history, tool call,...)
 then improve the project structure later.
+
+### Wishlist
+- [x] agent chat loop
+- [x] tool calling
+  - [ ] intent routing
+- [ ] interactive UI
+- [ ] chat session
+- [ ] log file debug
+- [ ] skills

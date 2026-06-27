@@ -19,7 +19,7 @@ func Init() tools.Tooler {
 			Type: "function",
 			Function: tools.Function{
 				Name:        "write_file",
-				Description: "A tool used to generate a file with its content.",
+				Description: "A tool to write content to a file.",
 				Parameters: tools.Parameters{
 					Type:     "object",
 					Required: []string{"path", "content"},
@@ -44,16 +44,26 @@ func Init() tools.Tooler {
 func (t WriteFile) Run(args any) (any, error) {
 	in, ok := args.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("wrong input")
+		return nil, fmt.Errorf("invalid input type: expected map[string]any, got %T", args)
 	}
 
-	path := in["path"].(string)
-	content := in["content"].(string)
+	pathVal, ok := in["path"].(string)
+	if !ok || pathVal == "" {
+		return "failed to write file, missing or invalid required parameter: 'path' must be a non-empty string", nil
+	}
 
-	err := os.WriteFile(path, []byte(content), 0644)
+	contentVal, ok := in["content"].(string)
+	if !ok || contentVal == "" {
+		return "failed to write file, missing or invalid required parameter: 'content' must be a non-empty string", nil
+	}
+
+	// Execute the file write operation
+	err := os.WriteFile(pathVal, []byte(contentVal), 0644)
 	if err != nil {
-		return fmt.Sprintf("failed to write file with error: %s", err.Error()), nil
+		// Return the actual OS error directly
+		return fmt.Sprintf("failed to write file to %s: %s", pathVal, err.Error()), nil
 	}
 
-	return fmt.Sprintf("successfully write file to %s", path), nil
+	// Return a success message and nil error
+	return fmt.Sprintf("successfully write file to %s", pathVal), nil
 }
