@@ -36,16 +36,22 @@ func Init() tools.Tooler {
 	return t
 }
 
-// Run runs the tool with arguments
+// Run runs the tool with arguments, waiting for the specified duration.
 func (t Wait) Run(args any) (any, error) {
 	in, ok := args.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("wrong input")
+		return nil, fmt.Errorf("wait tool received invalid input type: expected map[string]any, got %T", args)
 	}
 
-	timeToWait := in["t"].(float64)
+	timeMsRaw, ok := in["t"].(float64)
+	if !ok {
+		return fmt.Sprintf("wait tool received invalid parameter 't': expected float64, got %T", in["t"]), nil
+	}
 
-	time.Sleep(time.Duration(timeToWait) * time.Millisecond)
+	// Convert milliseconds to time.Duration
+	duration := time.Duration(timeMsRaw * float64(time.Millisecond))
 
-	return fmt.Sprintf("Finished waiting for %f milliseconds", timeToWait), nil
+	time.Sleep(duration)
+
+	return fmt.Sprintf("Finished waiting for %v", duration), nil
 }
