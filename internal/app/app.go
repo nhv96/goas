@@ -64,9 +64,9 @@ func (a *Application[T]) Start() {
 	// fmt.Fprint(a.output, "> ")
 
 	if a.shouldIntroduce() {
-		userInput := "introduce yourself"
+		userInput := "Hi, briefly introduce yourself."
 
-		a.chatAndDisplay(userInput)
+		a.chatAndDisplay(userInput, false)
 	}
 
 	for scanner.Scan() {
@@ -77,7 +77,9 @@ func (a *Application[T]) Start() {
 			break
 		}
 
-		a.chatAndDisplay(userInput)
+		useTool, userInput := a.shouldUseTools(userInput)
+
+		a.chatAndDisplay(userInput, useTool)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -93,11 +95,24 @@ func (a *Application[T]) shouldIntroduce() bool {
 	return !a.introduced
 }
 
-func (a *Application[T]) chatAndDisplay(userInput string) {
+func (a *Application[T]) shouldUseTools(in string) (bool, string) {
+	toolKeyword := "/tool"
+	newStr := ""
+	if strings.Contains(in, toolKeyword) {
+		newStr = strings.Replace(in, toolKeyword, "", -1)
+		newStr = strings.TrimSpace(newStr)
+
+		return true, newStr
+	}
+
+	return false, in
+}
+
+func (a *Application[T]) chatAndDisplay(userInput string, useTool bool) {
 	// flag to catch when the thinking has started/stopped
 	thinking := false
 
-	replyChan, err := a.Agent.Chat(userInput)
+	replyChan, err := a.Agent.Chat(userInput, useTool)
 	if err != nil {
 		panic(err)
 	}

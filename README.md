@@ -33,9 +33,11 @@ then improve the project structure later.
 
 ### Wishlist
 - [x] agent chat loop
+  - [ ] improve chat loop codebase
 - [x] tool calling
   - [ ] intent routing
 - [ ] interactive UI
 - [ ] chat session
 - [ ] log file debug
 - [ ] skills
+- [ ] context tokens count

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"slices"
 	"strings"
 
@@ -11,6 +13,8 @@ import (
 	"github.com/nhv96/goas/internal/payload"
 	"github.com/nhv96/goas/pkg/tools"
 	"github.com/nhv96/goas/pkg/tools/grep"
+	listdir "github.com/nhv96/goas/pkg/tools/list_dir"
+	patchfile "github.com/nhv96/goas/pkg/tools/patch_file"
 	readfile "github.com/nhv96/goas/pkg/tools/read_file"
 	writefile "github.com/nhv96/goas/pkg/tools/write_file"
 )
@@ -22,7 +26,7 @@ var (
 // Agentor is the interface for agent implementation
 type Agentor[T AgentReply] interface {
 	GetName() string
-	Chat(userInput string) (<-chan T, error)
+	Chat(userInput string, useTool bool) (<-chan T, error)
 }
 
 // AgentReply is the struct return to application callers
@@ -71,11 +75,11 @@ func NewAgent(modelName, systemPrompt string, think, stream bool) (*Agent, error
 	}
 
 	agent.Tools = map[string]tools.Tooler{
-		// "move_crane": movecrane.Init(),
-		// "wait": wait.Init(),
-		"write_file": writefile.Init(),
-		"read_file":  readfile.Init(),
 		"grep":       grep.Init(),
+		"list_dir":   listdir.Init(),
+		"read_file":  readfile.Init(),
+		"write_file": writefile.Init(),
+		"patch_file": patchfile.Init(),
 	}
 
 	if agent.SystemPrompt != "" {
@@ -86,6 +90,17 @@ func NewAgent(modelName, systemPrompt string, think, stream bool) (*Agent, error
 			},
 		}
 	}
+
+	// get current working dir to promp to model
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	agent.ChatHistory = append(agent.ChatHistory, payload.ChatMessage{
+		Role:    payload.RoleSystem,
+		Content: fmt.Sprintf("Your working directory is %s, you must **only** interact within this working directory", dir),
+	})
 
 	return agent, nil
 }
@@ -104,7 +119,7 @@ func (ag *Agent) GetName() string {
 
 // Chat takes in a user input prompt, then inject the system prompt
 // before sending it to the model server.
-func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
+func (ag *Agent) Chat(userInput string, useTool bool) (<-chan Envelop, error) {
 	envelopChan := make(chan Envelop, 5)
 
 	ag.ChatHistory = append(ag.ChatHistory, payload.ChatMessage{
@@ -112,7 +127,12 @@ func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
 		Content: userInput,
 	})
 
-	chatPayload, err := payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, ag.Tools.Descriptions())
+	toolDesc := []string{}
+	if useTool {
+		toolDesc = ag.Tools.Descriptions()
+	}
+
+	chatPayload, err := payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, toolDesc)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +163,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
 			if len(chatResp.Message.ToolCalls) > 0 {
 				ag.handleToolCall(chatResp)
 
-				chatPayload, err = payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, ag.Tools.Descriptions())
+				chatPayload, err = payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, toolDesc)
 				if err != nil {
 					return err
 				}
@@ -151,7 +171,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
 				// signal to send another final request to sync
 				// the tool calling result to the model
 				pushMsgChan <- chatPayload
-				close(pushMsgChan) // TODO: check bug here
+				// close(pushMsgChan) // TODO: check bug here
 			} else {
 				if chatResp.Message.Content != "" || chatResp.Message.Thinking != "" {
 					ag.ChatHistory = append(ag.ChatHistory,
@@ -195,7 +215,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
 				} else if len(chatResp.Message.ToolCalls) > 0 {
 					ag.handleToolCall(chatResp)
 
-					chatPayload, err = payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, ag.Tools.Descriptions())
+					chatPayload, err = payload.CreateChatPayload(ag.ModelName, ag.ChatHistory, ag.Think, ag.Stream, toolDesc)
 					if err != nil {
 						return err
 					}
@@ -237,7 +257,7 @@ func (ag *Agent) Chat(userInput string) (<-chan Envelop, error) {
 	go func() {
 		for {
 			if pl, ok := <-pushMsgChan; ok {
-				// fmt.Println("\nsending chat...")
+				fmt.Println("\nwaiting respond...")
 				err = ag.ollama.SendChat(pl, ag.Stream, doHandleResponse)
 				if err != nil {
 					return
@@ -264,7 +284,7 @@ func (ag *Agent) handleToolCall(chatResp *payload.ChatResponse) {
 
 	for _, toolCall := range chatResp.Message.ToolCalls {
 		if tool, ok := ag.Tools[toolCall.Function.Name]; ok {
-			fmt.Println("calling tool:", toolCall.Function.Name)
+			fmt.Println("\ncalling tool:", toolCall.Function.Name)
 
 			callResult, err := tool.Run(toolCall.Function.Arguments)
 			if err != nil {

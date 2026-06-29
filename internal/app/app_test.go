@@ -27,7 +27,7 @@ func (r MockReply) GetContent() string {
 	return r.Content
 }
 
-func (m *MockAgent) Chat(userInput string) (<-chan MockReply, error) {
+func (m *MockAgent) Chat(userInput string, useTool bool) (<-chan MockReply, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
